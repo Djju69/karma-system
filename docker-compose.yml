@@ -1,0 +1,134 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with PostGIS
+  postgres:
+    image: postgis/postgis:15-3.3
+    environment:
+      POSTGRES_DB: karma_db
+      POSTGRES_USER: karma_user
+      POSTGRES_PASSWORD: karma_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U karma_user -d karma_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Telegram Bot
+  bot:
+    build: .
+    command: python -m app.bot.main
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - DATABASE_URL=postgresql+asyncpg://karma_user:karma_password@postgres:5432/karma_db
+      - REDIS_URL=redis://redis:6379/0
+      - FERNET_KEY_HEX=${FERNET_KEY_HEX}
+      - DEFAULT_LANG=ru
+      - DEFAULT_CITY_SLUG=nhatrang
+      - USER_POLICY_PDF_RU=${USER_POLICY_PDF_RU}
+      - USER_POLICY_PDF_EN=${USER_POLICY_PDF_EN}
+      - USER_POLICY_PDF_VI=${USER_POLICY_PDF_VI}
+      - USER_POLICY_PDF_KO=${USER_POLICY_PDF_KO}
+      - PARTNER_POLICY_PDF_RU=${PARTNER_POLICY_PDF_RU}
+      - PARTNER_POLICY_PDF_EN=${PARTNER_POLICY_PDF_EN}
+      - PARTNER_POLICY_PDF_VI=${PARTNER_POLICY_PDF_VI}
+      - PARTNER_POLICY_PDF_KO=${PARTNER_POLICY_PDF_KO}
+      - SUPPORT_TELEGRAM=${SUPPORT_TELEGRAM}
+      - WEBAPP_QR_URL=${WEBAPP_QR_URL}
+      - PHONE_SALT=${PHONE_SALT}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+
+  # FastAPI
+  api:
+    build: .
+    command: uvicorn app.api.main:app --host 0.0.0.0 --port 8000
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://karma_user:karma_password@postgres:5432/karma_db
+      - REDIS_URL=redis://redis:6379/0
+      - FERNET_KEY_HEX=${FERNET_KEY_HEX}
+      - PHONE_SALT=${PHONE_SALT}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./app/infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./app/infra/nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # Prometheus (monitoring)
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./app/infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    restart: unless-stopped
+
+  # Grafana (dashboards)
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./app/infra/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./app/infra/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:

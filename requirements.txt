@@ -1,13 +1,14 @@
 # Core framework
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
-aiogram==3.2.0
+aiogram==3.4.1
 
 # Database
 sqlalchemy[asyncio]==2.0.23
 asyncpg==0.29.0
 alembic==1.12.1
 geoalchemy2==0.14.2
+psycopg2-binary==2.9.9
 
 # Cache & Session
 redis==5.0.1
@@ -17,6 +18,11 @@ aioredis==2.0.1
 cryptography==41.0.8
 pyjwt==2.8.0
 passlib[bcrypt]==1.7.4
+bcrypt==4.1.2
+
+# QR Code generation
+qrcode[pil]==7.4.2
+pillow==10.1.0
 
 # Utilities
 pydantic==2.5.0
